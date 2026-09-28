@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة تحكم دِثار</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{--plum:#3B1E2B;--plum-deep:#2A1420;--gold:#C9A34E;--cream:#F7F1E6;--ink:#241419;--line:#E1D3B8;--danger:#A23B3B;--ok:#3B7A4A}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Tajawal',sans-serif;background:var(--cream);color:var(--ink)}
+button,input,select{font-family:inherit}
+input:not([type=checkbox]):not([type=color]):not([type=file]),select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff}
+.topbar{background:var(--plum-deep);color:var(--gold);padding:14px 18px;display:flex;justify-content:space-between;align-items:center}
+.tabs{display:flex;gap:6px;padding:10px;overflow-x:auto;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0}
+.tabs button{flex:0 0 auto;padding:8px 14px;border:1px solid var(--line);border-radius:20px;background:#fff;font-size:12.5px;cursor:pointer}
+.tabs button.on{background:var(--plum);color:var(--gold);border-color:var(--plum)}
+.wrap{padding:16px;max-width:720px;margin:0 auto}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.stat{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;text-align:center}
+.stat b{display:block;font-size:22px;color:var(--plum)}
+.stat span{font-size:11.5px;color:#8a7a68}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.badge{font-size:11px;padding:2px 8px;border-radius:8px;color:#fff}
+.b-active{background:var(--ok)} .b-out{background:#b08a3a} .b-archived{background:#8a7a68}
+.field{display:block;font-size:12.5px;color:#6b5a48;margin:8px 0 4px}
+.btn{padding:8px 12px;border-radius:9px;font-size:12px;border:1px solid var(--line);background:#fff;cursor:pointer}
+.btn.primary{background:var(--plum);color:var(--gold);border:none}
+.btn.danger{color:var(--danger);border-color:var(--danger)}
+.err{color:var(--danger);font-size:12px;margin-top:6px}
+.hidden{display:none}
+.color-row{display:flex;align-items:center;gap:10px;margin-top:8px}
+.color-row input[type=color]{width:42px;height:36px;border:1px solid var(--line);border-radius:8px;padding:2px;background:#fff}
+.color-row label{flex:1;font-size:12.5px;color:#6b5a48}
+.banner-thumb{height:70px;border-radius:8px;background:linear-gradient(135deg,var(--plum),var(--gold));margin-bottom:8px;display:flex;align-items:center;padding:0 12px;color:#fff;font-size:13px}
+.login-box{max-width:340px;margin:60px auto;background:#fff;padding:22px;border-radius:14px;border:1px solid var(--line)}
+</style>
+</head><body>
+
+<div id="loginView" class="login-box">
+  <h2 style="margin-bottom:14px">دخول لوحة التحكم</h2>
+  <label class="field">البريد الإلكتروني</label><input id="lEmail">
+  <label class="field">كلمة المرور</label><input type="password" id="lPass">
+  <div class="err" id="lErr"></div>
+  <button class="btn primary" style="width:100%;margin-top:12px;padding:11px" onclick="adminLogin()">دخول</button>
+</div>
+
+<div id="app" class="hidden">
+  <div class="topbar"><b>لوحة تحكم دِثار</b><button class="btn" onclick="logout()">خروج</button></div>
+  <div class="tabs">
+    <button class="on" data-tab="dash" onclick="showTab('dash')">الإحصائيات</button>
+    <button data-tab="products" onclick="showTab('products')">المنتجات</button>
+    <button data-tab="categories" onclick="showTab('categories')">الفئات</button>
+    <button data-tab="orders" onclick="showTab('orders')">الطلبات</button>
+    <button data-tab="returns" onclick="showTab('returns')">المرتجعات</button>
+    <button data-tab="display" onclick="showTab('display')">العرض والتسويق</button>
+  </div>
+  <div class="wrap">
+    <div id="tab-dash"></div>
+    <div id="tab-products" class="hidden"></div>
+    <div id="tab-categories" class="hidden"></div>
+    <div id="tab-orders" class="hidden"></div>
+    <div id="tab-returns" class="hidden"></div>
+    <div id="tab-display" class="hidden"></div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+function getToken(){ return localStorage.getItem('dithar_admin_token'); }
+async function api(path, opts={}){
+  const headers={'Content-Type':'application/json', ...(opts.headers||{})};
+  const t=getToken(); if(t) headers.Authorization='Bearer '+t;
+  const res = await fetch(API_BASE+path, {...opts, headers});
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error||'خطأ');
+  return data;
+}
+async function adminLogin(){
+  try{
+    const r = await api('/auth/login', {method:'POST', body: JSON.stringify({email:document.getElementById('lEmail').value, password:document.getElementById('lPass').value})});
+    if(!['admin','super_admin'].includes(r.user.role)) throw new Error('هذا الحساب ليس حساب أدمن');
+    localStorage.setItem('dithar_admin_token', r.token);
+    boot();
+  }catch(e){ document.getElementById('lErr').textContent = e.message; }
+}
+function logout(){ localStorage.removeItem('dithar_admin_token'); location.reload(); }
+function showTab(name){
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on', b.dataset.tab===name));
+  document.querySelectorAll('[id^=tab-]').forEach(t=>t.classList.add('hidden'));
+  document.getElementById('tab-'+name).classList.remove('hidden');
+  ({dash:loadDash, products:loadProducts, categories:loadCategories, orders:loadOrders, returns:loadReturns, display:loadDisplay})[name]();
+}
+function statusBadge(s){ const m={active:'b-active',out_of_stock:'b-out',archived:'b-archived'}; return `<span class="badge ${m[s]||'b-out'}">${s}</span>`; }
+
+async function loadDash(){
+  const el = document.getElementById('tab-dash');
+  try{
+    const d = await api('/admin/dashboard');
+    el.innerHTML = `<div class="stat-grid">
+      <div class="stat"><b>${d.orders_today}</b><span>طلبات اليوم</span></div>
+      <div class="stat"><b>${d.total_revenue}</b><span>إجمالي الإيرادات (د.ل)</span></div>
+      <div class="stat"><b>${d.low_stock_alerts}</b><span>تنبيهات نفاد المخزون</span></div>
+      <div class="stat"><b>${d.inventory_by_status.reduce((s,i)=>s+Number(i.count),0)}</b><span>إجمالي المنتجات</span></div>
+    </div>
+    <div class="card"><b>توزيع الجرد</b>${d.inventory_by_status.map(i=>`<div class="row" style="margin-top:6px">${statusBadge(i.status)}<span>${i.count}</span></div>`).join('')}</div>`;
+  }catch(e){ el.innerHTML = `<div class="err">${e.message}</div>`; }
+}async function loadCategories(){
+  const el = document.getElementById('tab-categories');
+  const cats = await api('/categories').catch(()=>[]);
+  el.innerHTML = `<div class="card"><b>إضافة فئة جديدة</b>
+    <label class="field">الاسم</label><input id="catName">
+    <label class="field">المعرف (slug بالإنجليزية)</label><input id="catSlug">
+    <label class="field">أيقونة (إيموجي)</label><input id="catIcon" placeholder="👗">
+    <button class="btn primary" style="margin-top:10px" onclick="addCategory()">إضافة</button>
+    <div class="err" id="catErr"></div></div>` +
+    cats.map(c=>`<div class="card row"><span>${c.icon||''} ${c.name}</span><button class="btn danger" onclick="deleteCategory('${c.id}')">حذف</button></div>`).join('');
+}
+async function addCategory(){
+  try{ await api('/categories', {method:'POST', body: JSON.stringify({name:document.getElementById('catName').value, slug:document.getElementById('catSlug').value, icon:document.getElementById('catIcon').value})});
+    loadCategories();
+  }catch(e){ document.getElementById('catErr').textContent = e.message; }
+}
+async function deleteCategory(id){ await api('/categories/'+id, {method:'DELETE'}); loadCategories(); }
+
+async function uploadImage(fileInputEl){
+  const file = fileInputEl.files[0];
+  if(!file) return null;
+  const fd = new FormData();
+  fd.append('image', file);
+  const t = getToken();
+  const res = await fetch(API_BASE+'/uploads', {method:'POST', headers:{Authorization:'Bearer '+t}, body: fd});
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error||'تعذّر رفع الصورة');
+  return data.url;
+}
+
+async function loadProducts(){
+  const el = document.getElementById('tab-products');
+  const items = await api('/products/admin/all').catch(()=>[]);
+  el.innerHTML = `<div class="card"><b>إضافة منتج</b>
+    <label class="field">الاسم</label><input id="pName">
+    <label class="field">السعر</label><input id="pPrice" type="number">
+    <label class="field">السعر قبل الخصم (اختياري)</label><input id="pCompare" type="number">
+    <label class="field">الكمية</label><input id="pStock" type="number" value="0">
+    <label class="field">صورة المنتج</label><input id="pImgFile" type="file" accept="image/*">
+    <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:13px"><input type="checkbox" id="pFeatured"> عرض ضمن "عروض حصرية"</label>
+    <button class="btn primary" style="margin-top:10px" onclick="addProduct()">إضافة المنتج</button>
+    <div class="err" id="pErr"></div></div>` +
+    items.map(p=>`<div class="card"><div class="row"><b>${p.name}</b>${statusBadge(p.status)}</div>
+      <div style="font-size:12.5px;color:#6b5a48;margin:4px 0">${p.price} د.ل — الكمية: ${p.stock_qty}</div>
+      <div class="row">
+        ${p.status!=='archived' ? `<button class="btn danger" onclick="archiveProduct('${p.id}')">أرشفة</button>` : `<button class="btn" onclick="restoreProduct('${p.id}')">استعادة</button>`}
+        <button class="btn" onclick="markBestseller('${p.id}')">الأكثر طلبًا ⭐</button>
+      </div></div>`).join('');
+}
+async function addProduct(){
+  try{
+    const uploaded = await uploadImage(document.getElementById('pImgFile'));
+    await api('/products', {method:'POST', body: JSON.stringify({
+      name:document.getElementById('pName').value, price:Number(document.getElementById('pPrice').value),
+      compare_price:Number(document.getElementById('pCompare').value)||null, stock_qty:Number(document.getElementById('pStock').value),
+      is_featured:document.getElementById('pFeatured').checked, images: uploaded?[uploaded]:[] })});
+    loadProducts();
+  }catch(e){ document.getElementById('pErr').textContent = e.message; }
+}
+async function archiveProduct(id){ await api('/products/'+id+'/archive', {method:'PATCH'}); loadProducts(); }
+async function restoreProduct(id){ await api('/products/'+id+'/restore', {method:'PATCH'}); loadProducts(); }
+async function markBestseller(id){ await api('/products/'+id, {method:'PUT', body: JSON.stringify({is_bestseller:true})}); loadProducts(); }
+
+async function loadOrders(){
+  const el = document.getElementById('tab-orders');
+  const items = await api('/orders/admin/all').catch(()=>[]);
+  const statusAr = {pending:'قيد المراجعة',confirmed:'تم التأكيد',processing:'قيد التجهيز',shipped:'تم الشحن',delivered:'تم التسليم',cancelled:'ملغي'};
+  const statuses = Object.keys(statusAr);
+  el.innerHTML = items.map(o=>`<div class="card"><div class="row"><b>#${o.order_number}</b><span>${o.total} د.ل</span></div>
+    <div style="font-size:12px;color:#8a7a68;margin:4px 0">${o.payment_method} — ${o.payment_status}</div>
+    <select onchange="updateOrderStatus('${o.id}', this.value)">${statuses.map(s=>`<option value="${s}" ${s===o.status?'selected':''}>${statusAr[s]}</option>`).join('')}</select>
+    </div>`).join('') || '<div class="card">لا توجد طلبات بعد</div>';
+}
+async function updateOrderStatus(id, status){ await api('/orders/'+id+'/status', {method:'PATCH', body: JSON.stringify({status})}); }
+
+async function loadReturns(){
+  const el = document.getElementById('tab-returns');
+  const items = await api('/returns/admin/all').catch(()=>[]);
+  el.innerHTML = items.map(r=>`<div class="card"><div class="row"><b>${r.full_name}</b>${statusBadge(r.status)}</div>
+    <div style="font-size:12.5px;margin:4px 0">طلب #${r.order_number} — ${r.reason}</div>
+    <div class="row"><button class="btn" onclick="setReturnStatus('${r.id}','approved')">قبول</button><button class="btn danger" onclick="setReturnStatus('${r.id}','rejected')">رفض</button></div>
+    </div>`).join('') || '<div class="card">لا توجد طلبات إرجاع</div>';
+}
+async function setReturnStatus(id,status){ await api('/returns/'+id+'/status', {method:'PATCH', body: JSON.stringify({status})}); loadReturns(); }async function loadDisplay(){
+  const el = document.getElementById('tab-display');
+  const [settings, banners] = await Promise.all([api('/settings').catch(()=>({})), api('/banners/admin/all').catch(()=>[])]);
+  const t = settings.theme||{}, id = settings.identity||{}, c = settings.contact||{};
+  el.innerHTML = `
+    <div class="card"><b>شاشة الدعاية العلوية (سلايدر البانرات)</b>
+      <label class="field">العنوان</label><input id="bTitle" placeholder="تشكيلة الخريف وصلت">
+      <label class="field">العنوان الفرعي</label><input id="bSub" placeholder="عباءات فاخرة بلمسة عصرية">
+      <label class="field">صورة الخلفية</label><input id="bImgFile" type="file" accept="image/*">
+      <label class="field">أو رابط صورة جاهز (اختياري)</label><input id="bImg" placeholder="https://...">
+      <label class="field">رابط عند الضغط (اختياري)</label><input id="bLink" placeholder="رابط فئة أو منتج">
+      <button class="btn primary" style="margin-top:10px" onclick="addBanner()">إضافة بانر</button>
+      <div class="err" id="bErr"></div>
+    </div>
+    ${banners.map(b=>`<div class="card">
+      <div class="banner-thumb" style="${b.image_url?`background-image:url(${b.image_url});background-size:cover`:''}"><b>${b.title||''}</b></div>
+      <div class="row"><span>${b.subtitle||''}</span>${statusBadge(b.is_active?'active':'archived')}</div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" onclick="toggleBanner('${b.id}')">${b.is_active?'إيقاف':'تفعيل'}</button>
+        <button class="btn danger" onclick="deleteBanner('${b.id}')">حذف</button>
+      </div></div>`).join('')}
+
+    <div class="card"><b>ألوان وهوية المتجر</b>
+      <div class="color-row"><label>اللون الأساسي (الخلفية الداكنة)</label><input type="color" id="cPrimary" value="${t.primary||'#3B1E2B'}"></div>
+      <div class="color-row"><label>اللون الأساسي الغامق (الفوتر)</label><input type="color" id="cPrimaryDeep" value="${t.primary_deep||'#2A1420'}"></div>
+      <div class="color-row"><label>لون التمييز (الذهبي)</label><input type="color" id="cAccent" value="${t.accent||'#C9A34E'}"></div>
+      <div class="color-row"><label>لون التمييز الفاتح</label><input type="color" id="cAccentSoft" value="${t.accent_soft||'#E7D6A8'}"></div>
+      <div class="color-row"><label>لون الخلفية العامة</label><input type="color" id="cBg" value="${t.background||'#F7F1E6'}"></div>
+      <label class="field">اسم المتجر</label><input id="iName" value="${id.store_name||'دِثار'}">
+      <label class="field">أيقونة الشعار (إيموجي)</label><input id="iIcon" value="${id.logo_icon||'👗'}">
+      <button class="btn primary" style="margin-top:10px" onclick="saveThemeIdentity()">حفظ ونشر على الواجهة</button>
+      <div class="err" id="themeErr"></div>
+    </div>
+
+    <div class="card"><b>التواصل</b>
+      <label class="field">رقم واتساب (بدون +، مثال 218912345678)</label><input id="cWhats" value="${c.whatsapp||''}">
+      <label class="field">رقم الهاتف</label><input id="cPhone" value="${c.phone||''}">
+      <button class="btn primary" style="margin-top:10px" onclick="saveContact()">حفظ</button>
+    </div>`;
+}
+
+async function addBanner(){
+  try{
+    const uploaded = await uploadImage(document.getElementById('bImgFile'));
+    await api('/banners', {method:'POST', body: JSON.stringify({
+      title:document.getElementById('bTitle').value, subtitle:document.getElementById('bSub').value,
+      image_url: uploaded || document.getElementById('bImg').value || null,
+      link_url:document.getElementById('bLink').value||null })});
+    loadDisplay();
+  }catch(e){ document.getElementById('bErr').textContent = e.message; }
+}
+async function toggleBanner(id){ await api('/banners/'+id+'/toggle', {method:'PATCH'}); loadDisplay(); }
+async function deleteBanner(id){ await api('/banners/'+id, {method:'DELETE'}); loadDisplay(); }
+
+async function saveThemeIdentity(){
+  try{
+    await api('/settings/theme', {method:'PUT', body: JSON.stringify({
+      primary:document.getElementById('cPrimary').value, primary_deep:document.getElementById('cPrimaryDeep').value,
+      accent:document.getElementById('cAccent').value, accent_soft:document.getElementById('cAccentSoft').value,
+      background:document.getElementById('cBg').value })});
+    await api('/settings/identity', {method:'PUT', body: JSON.stringify({
+      store_name:document.getElementById('iName').value, logo_icon:document.getElementById('iIcon').value })});
+    document.getElementById('themeErr').style.color='var(--ok)'; document.getElementById('themeErr').textContent='تم الحفظ — ستظهر التغييرات في المتجر فورًا';
+  }catch(e){ document.getElementById('themeErr').textContent = e.message; }
+}
+async function saveContact(){
+  await api('/settings/contact', {method:'PUT', body: JSON.stringify({whatsapp:document.getElementById('cWhats').value, phone:document.getElementById('cPhone').value})});
+}
+
+function boot(){ document.getElementById('loginView').classList.add('hidden'); document.getElementById('app').classList.remove('hidden'); showTab('dash'); }
+if(getToken()) boot();
+</script>
+</body>
+</html>
