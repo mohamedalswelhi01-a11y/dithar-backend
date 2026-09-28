@@ -16,7 +16,310 @@ a{color:inherit;text-decoration:none} button{font-family:inherit;cursor:pointer;
 .brand{font-size:22px;color:var(--gold)}.err{color:var(--danger);font-size:12px;margin-top:6px}
 .hidden{display:none}
 .banner-wrap{margin:14px;border-radius:18px;overflow:hidden;position:relative;height:150px}
-.banner-slide{position:absolute;inset:0;display:flex;align-items:center;padding:0 22px;color:var(--cream);
+.banner-slide{position:absolute;inset:0;display:flex;align-items:center;padding:0 22px;color:var(--cream);let PRODUCTS_CACHE = {}, wish = new Set();
+
+function getToken(){ return localStorage.getItem('dithar_token'); }
+function setToken(t){ t? localStorage.setItem('dithar_token', t): localStorage.removeItem('dithar_token'); }
+
+async function api(path, opts={}){
+  const headers = {'Content-Type':'application/json', ...(opts.headers||{})};
+  const token = getToken();
+  if (token) headers.Authorization = 'Bearer ' + token;
+  const res = await fetch(API_BASE + path, {...opts, headers});
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok) throw new Error(data.error || 'حدث خطأ');
+  return data;
+}
+
+async function loadSettings(){
+  try{
+    const s = await api('/settings');
+    if(s.theme){
+      const r = document.documentElement.style;
+      const t = s.theme;
+      if(t.primary) r.setProperty('--plum', t.primary);
+      if(t.primary_deep) r.setProperty('--plum-deep', t.primary_deep);
+      if(t.accent) r.setProperty('--gold', t.accent);
+      if(t.accent_soft) r.setProperty('--gold-soft', t.accent_soft);
+      if(t.background) r.setProperty('--cream', t.background);
+    }
+    if(s.identity){
+      document.getElementById('brandName').textContent = (s.identity.logo_icon?s.identity.logo_icon+' ':'') + (s.identity.store_name||'دِثار');
+      document.title = (s.identity.store_name||'دِثار') + ' | متجر العبايات';
+    }
+    if(s.contact && s.contact.whatsapp){
+      const link = 'https://wa.me/'+s.contact.whatsapp;
+      document.getElementById('waLink').href = link;
+      document.getElementById('waLink2').href = link;
+    }
+  }catch(e){}
+}
+
+async function loadBanners(){
+  const wrap = document.getElementById('bannerWrap'), dots = document.getElementById('bannerDots');
+  try{
+    const banners = await api('/banners');
+    if(!banners.length){ return; }
+    wrap.querySelectorAll('.banner-slide').forEach(n=>n.remove());
+    banners.forEach((b,i)=>{
+      const slide = document.createElement('div');
+      slide.className = 'banner-slide' + (i===0?' on':'');
+      slide.style.cssText = b.image_url ? `background-image:url(${b.image_url});background-size:cover;background-position:center` : '';
+      slide.innerHTML = `<div><span class="tag">${b.subtitle||''}</span><h2>${b.title||''}</h2></div>`;
+      if(b.link_url) slide.onclick = ()=>window.open(b.link_url,'_blank');
+      wrap.insertBasync function loadCategories(){
+  try{
+    const cats = await api('/categories');
+    document.getElementById('catRow').innerHTML =
+      cats.map(c=>`<div class="cat" onclick="filterByCategory('${c.id}','${c.name}')"><div class="ic">${c.icon||'🏷️'}</div>${c.name}</div>`).join('') || '<div class="empty">لا توجد فئات بعد</div>';
+  }catch(e){ document.getElementById('catRow').innerHTML = `<div class="empty">تعذّر الاتصال بالخادم</div>`; }
+}
+
+async function filterByCategory(id, name){
+  document.getElementById('homeSections').classList.add('hidden');
+  document.getElementById('filteredSection').classList.remove('hidden');
+  document.getElementById('filteredTitle').textContent = name;
+  document.getElementById('filteredGrid').innerHTML = '<div class="empty">جارِ التحميل...</div>';
+  try{
+    const items = await api('/products?category='+id);
+    document.getElementById('filteredGrid').innerHTML = items.map(cardHtml).join('') || '<div class="empty">لا توجد منتجات في هذه الفئة بعد</div>';
+  }catch(e){ document.getElementById('filteredGrid').innerHTML = `<div class="empty">${e.message}</div>`; }
+}
+
+async function doSearch(){
+  const q = document.getElementById('searchBox').value.trim();
+  if(!q) return;
+  document.getElementById('homeSections').classList.add('hidden');
+  document.getElementById('filteredSection').classList.remove('hidden');
+  document.getElementById('filteredTitle').textContent = 'نتائج البحث: '+q;
+  document.getElementById('filteredGrid').innerHTML = '<div class="empty">جارِ البحث...</div>';
+  try{
+    const items = await api('/products?search='+encodeURIComponent(q));
+    document.getElementById('filteredGrid').innerHTML = items.map(cardHtml).join('') || '<div class="empty">لا توجد نتائج مطابقة</div>';
+  }catch(e){ document.getElementById('filteredGrid').innerHTML = `<div class="empty">${e.message}</div>`; }
+}
+
+function clearFilter(){
+  document.getElementById('homeSections').classList.remove('hidden');
+  document.getElementById('filteredSection').classList.add('hidden');
+  document.getElementById('searchBox').value='';
+}
+
+function cardHtml(p){
+  PRODUCTS_CACHE[p.id]=p;
+  const img = (p.images&&p.images[0]) ? `<img src="${p.images[0]}" style="width:100%;height:100%;object-fit:cover">` : (p.name||'').charAt(0);
+  return `<div class="card">
+    <span class="fav ${wish.has(p.id)?'on':''}" onclick="event.stopPropagation();toggleWish('${p.id}')">${wish.has(p.id)?'♥':'♡'}</span>
+    <div class="ph" onclick="openProduct('${p.id}')">${img}</div>
+    <div class="info"><div class="name" onclick="openProduct('${p.id}')">${p.name}</div>
+      <div class="price">${p.price} د.ل ${p.compare_price?`<span class="old">${p.compare_price} د.ل</span>`:''}</div>
+      <button class="addcart" onclick="addCart('${p.id}')">🛒 أضف إلى السلة</button>
+    </div></div>`;
+}
+
+async function openProduct(id){
+  openSheet('product');
+  document.getElementById('productBody').innerHTML = '<div class="empty">جارِ التحميل...</div>';
+  try{
+    const p = await api('/products/'+id);
+    PRODUCTS_CACHE[p.id]=p;
+    const img = (p.images&&p.images[0]) ? `<img src="${p.images[0]}" style="width:100%;height:100%;object-fit:cover">` : '';
+    document.getElementById('productBody').innerHTML = `
+      <div class="ph" style="height:200px;border-radius:14px;font-size:48px">${img}</div>
+      <h2 style="font-size:18px;margin:12px 0 6px">${p.name}</h2>
+      <div class="price" style="font-size:16px">${p.price} د.ل ${p.compare_price?`<span class="old">${p.compare_price} د.ل</span>`:''}</div>
+      <p style="font-size:13px;color:#6b5a48;margin:10px 0;line-height:1.8">${p.description||'لا يوجد وصف بعد لهذا المنتج.'}</p>
+      <button class="cta" onclick="addCart('${p.id}')">🛒 أضف إلى السلة</button>
+      <button class="cta" style="background:#fff;color:var(--danger);border:1px solid var(--danger);margin-top:6px" onclick="toggleWish('${p.id}');openProduct('${p.id}')">${wish.has(p.id)?'إزالة من المفضلة ♥':'أضف إلى المفضلة ♡'}</button>`;
+  }catch(e){ document.getElementById('productBody').innerHTML = `<div class="empty">${e.message}</div>`; }
+}
+
+async function loadProducts(){
+  try{
+    const [offers, best] = await Promise.all([api('/products?featured=1'), api('/products?bestseller=1')]);
+    document.getElementById('offersGrid').innerHTML = offers.map(cardHtml).join('') || '<div class="empty">لا توجد عروض حاليًا</div>';
+    document.getElementById('bestGrid').innerHTML = best.map(cardHtml).join('') || '<div class="empty">لا توجد منتجات بعد</div>';
+  }catch(e){ document.getElementById('bestGrid').innerHTML = `<div class="empty">تعذّر تحميل المنتجات</div>`; }
+}async function toggleWish(id){
+  if(!getToken()) return openSheet('login');
+  try{ const r = await api('/wishlist/'+id, {method:'POST'});
+    r.inWishlist ? wish.add(id) : wish.delete(id);
+    loadProducts(); renderWish(); refreshCounts();
+  }catch(e){ showToast(e.message); }
+}
+
+async function addCart(id){
+  if(!getToken()) return openSheet('login');
+  try{ await api('/cart', {method:'POST', body: JSON.stringify({product_id:id, quantity:1})});
+    refreshCounts(); showToast('تمت إضافة المنتج إلى السلة');
+  }catch(e){ showToast(e.message); }
+}
+
+async function refreshCounts(){
+  if(!getToken()){ document.getElementById('cartCount').style.display='none'; document.getElementById('wishCount').style.display='none'; return; }
+  try{
+    const [cart, w] = await Promise.all([api('/cart'), api('/wishlist')]);
+    const cc=document.getElementById('cartCount'), wc=document.getElementById('wishCount');
+    const ctotal=cart.items.reduce((s,i)=>s+i.quantity,0);
+    cc.style.display = ctotal?'flex':'none'; cc.textContent=ctotal;
+    wc.style.display = w.length?'flex':'none'; wc.textContent=w.length;
+    wish = new Set(w.map(p=>p.id));
+  }catch(e){}
+}
+
+async function renderCart(){
+  const body=document.getElementById('cartBody');
+  try{
+    const cart = await api('/cart');
+    if(!cart.items.length){ body.innerHTML='<div class="empty">سلتك فارغة 🤍</div>'; return; }
+    const shipping=15;
+    body.innerHTML = cart.items.map(i=>`<div class="line-item"><div class="ph">${i.image?`<img src="${i.image}" style="width:100%;height:100%;object-fit:cover">`:'👗'}</div>
+      <div style="flex:1"><div class="nm">${i.name}</div><div>${i.price} د.ل × ${i.quantity}</div></div>
+      <span onclick="removeCart('${i.id}')" style="padding:4px">🗑️</span></div>`).join('') +
+      `<div class="total-row"><span>المجموع الفرعي</span><span>${cart.subtotal} د.ل</span></div>
+       <div class="total-row"><span>الشحن</span><span>${shipping} د.ل</span></div>
+       <div class="total-row sum"><span>الإجمالي</span><span>${cart.subtotal+shipping} د.ل</span></div>
+       <button class="cta" onclick="goCheckout()">إتمام الشراء</button>`;
+  }catch(e){ body.innerHTML = `<div class="empty">${e.message}</div>`; }
+}
+
+async function removeCart(id){ await api('/cart/'+id, {method:'DELETE'}); renderCart(); refreshCounts(); }
+
+async function renderWish(){
+  const body=document.getElementById('wishBody');
+  try{
+    const items = await api('/wishlist');
+    body.innerHTML = items.length ? items.map(p=>`<div class="line-item"><div class="ph">🖤</div>
+      <div style="flex:1"><div class="nm">${p.name}</div><div>${p.price} د.ل</div></div>
+      <button class="addcart" style="width:auto;padding:7px 12px" onclick="addCart('${p.id}')">🛒</button></div>`).join('')
+      : '<div class="empty">لا توجد منتجات في المفضلة بعد 🤍</div>';
+  }catch(e){ body.innerHTML = `<div class="empty">${e.message}</div>`; }
+}let selectedAddressId = null;
+
+async function goCheckout(){
+  const cart = await api('/cart');
+  document.getElementById('checkoutTotals').innerHTML = `<div class="total-row sum"><span>إجمالي الدفع</span><span>${cart.subtotal+15} د.ل</span></div>`;
+  try{
+    const addrs = await api('/addresses');
+    const list = document.getElementById('ckAddrList');
+    if(addrs.length){
+      list.innerHTML = addrs.map(a=>`<label class="pay-opt"><input type="radio" name="ckAddrRadio" value="${a.id}" ${a.is_default?'checked':''} onchange="selectedAddressId='${a.id}';document.getElementById('ckNewAddrWrap').classList.add('hidden')">${a.city} — ${a.details||''}</label>`).join('') +
+        `<label class="pay-opt"><input type="radio" name="ckAddrRadio" value="new" onchange="selectedAddressId=null;document.getElementById('ckNewAddrWrap').classList.remove('hidden')"> عنوان جديد</label>`;
+      selectedAddressId = (addrs.find(a=>a.is_default) || addrs[0]).id;
+      document.getElementById('ckNewAddrWrap').classList.add('hidden');
+    } else {
+      list.innerHTML = '';
+      selectedAddressId = null;
+      document.getElementById('ckNewAddrWrap').classList.remove('hidden');
+    }
+  }catch(e){}
+  openSheet('checkout');
+}
+
+async function confirmOrder(){
+  const payment_method = document.querySelector('input[name=pay]:checked').value;
+  try{
+    let address_id = selectedAddressId;
+    if(!address_id){
+      const newAddr = await api('/addresses', {method:'POST', body: JSON.stringify({
+        city: document.getElementById('ckCity').value, details: document.getElementById('ckAddr').value,
+        phone: document.getElementById('ckPhone').value, is_default: true })});
+      address_id = newAddr.id;
+    }
+    const order = await api('/orders', {method:'POST', body: JSON.stringify({payment_method, address_id})});
+    if(['cash_on_delivery','wallet'].includes(payment_method)){
+      closeSheet(); refreshCounts(); showToast('تم استلام طلبك بنجاح — رقم الطلب '+order.order_number);
+    } else {
+      const pay = await api('/payments/initiate', {method:'POST', body: JSON.stringify({order_id: order.id, provider: payment_method, return_url: location.href})});
+      if(pay.redirect_url) window.location.href = pay.redirect_url;
+      else showToast('تم إنشاء الطلب، جارٍ تجهيز صفحة الدفع...');
+    }
+  }catch(e){ document.getElementById('ckErr').textContent = e.message; }
+}
+
+async function submitReturn(){
+  try{ await api('/returns', {method:'POST', body: JSON.stringify({order_id: document.getElementById('retOrderId').value, reason: document.getElementById('retReason').value})});
+    closeSheet(); showToast('تم إرسال طلب الإرجاع');
+  }catch(e){ showToast(e.message); }
+}
+
+function switchAuthTab(tab){
+  document.getElementById('tabLogin').classList.toggle('on', tab==='login');
+  document.getElementById('tabRegister').classList.toggle('on', tab==='register');
+  document.getElementById('regNameWrap').style.display = tab==='register'?'block':'none';
+  document.getElementById('authTitle').textContent = tab==='login'?'تسجيل الدخول':'إنشاء حساب';
+  document.getElementById('authBtn').textContent = tab==='login'?'دخول':'إنشاء الحساب';
+  document.getElementById('authBtn').setAttribute('data-tab', tab);
+}
+
+async function doLogin(){
+  const tab = document.getElementById('authBtn').getAttribute('data-tab')||'login';
+  const email=document.getElementById('authEmail').value, password=document.getElementById('authPass').value;
+  try{
+    const body = tab==='login' ? {email,password} : {email,password,full_name:document.getElementById('regName').value};
+    const r = await api('/auth/'+tab, {method:'POST', body: JSON.stringify(body)});
+    setToken(r.token); closeSheet(); refreshCounts(); showToast('مرحبًا '+r.user.full_name);
+  }catch(e){ document.getElementById('authErr').textContent = e.message; }
+}
+
+function statusLabel(s){
+  return {pending:'قيد المراجعة',confirmed:'تم التأكيد',processing:'قيد التجهيز',shipped:'تم الشحن',delivered:'تم التسليم',cancelled:'ملغي'}[s] || s;
+}
+
+async function renderAccount(){
+  const body=document.getElementById('accountBody');
+  try{
+    const wallet = await api('/wallet');
+    const orders = await api('/orders');
+    body.innerHTML = `<div class="line-item"><div style="flex:1">رصيد المحفظة</div><b>${wallet.balance} د.ل</b></div>
+      <label class="field">شحن المحفظة (د.ل)</label>
+      <div style="display:flex;gap:8px"><input id="topupAmt" type="number" placeholder="50" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:10px">
+      <button style="background:var(--plum);color:var(--gold-soft);border:none;border-radius:10px;padding:0 14px" onclick="topupWallet()">شحن عبر MyPay</button></div>
+      <div class="err" id="topupErr"></div>
+      <h3 style="margin:14px 0 8px;font-size:15px">طلباتي</h3>` +
+      (orders.length? orders.map(o=>`<div class="line-item"><div style="flex:1"><div class="nm">#${o.order_number}</div><div style="font-size:11.5px;color:#8a7a68">${statusLabel(o.status)}</div></div><b>${o.total} د.ل</b></div>`).join('')
+      : '<div class="empty">لا توجد طلبات بعد</div>') +
+      `<button class="cta" style="background:#7a5a5a" onclick="setToken(null);closeSheet();refreshCounts();showToast('تم تسجيل الخروج')">تسجيل الخروج</button>`;
+  }catch(e){ body.innerHTML = `<div class="empty">${e.message}</div>`; }
+}
+
+async function topupWallet(){
+  const amount = Number(document.getElementById('topupAmt').value);
+  if(!amount || amount<=0){ document.getElementById('topupErr').textContent='أدخل مبلغًا صحيحًا'; return; }
+  try{
+    const r = await api('/wallet/topup', {method:'POST', body: JSON.stringify({amount, provider:'card', return_url: location.href})});
+    if(r.redirect_url) window.location.href = r.redirect_url;
+  }catch(e){ document.getElementById('topupErr').textContent = e.message; }
+}
+
+function openSheet(name){
+  document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('show'));
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('sheet-'+name).classList.add('show');
+  if(name==='cart') renderCart();
+  if(name==='wishlist') renderWish();
+  if(name==='account') renderAccount();
+}
+
+function closeSheet(){
+  document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('show'));
+  document.getElementById('overlay').classList.remove('show');
+}
+
+function showToast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+loadSettings(); loadBanners(); loadCategories(); loadProducts(); refreshCounts();
+</script>
+<style>
+.tab-switch{display:flex;gap:8px;margin-bottom:10px}
+.tab-switch button{flex:1;padding:8px;border-radius:9px;background:#fff;border:1px solid var(--line);font-size:12.5px}
+.tab-switch button.on{background:var(--plum);color:var(--gold-soft)}
+</style>
+</body>
+</html>
   background:linear-gradient(135deg,var(--plum),#522A3B 60%,var(--gold) 140%);opacity:0;transition:opacity .5s;pointer-events:none}
 .banner-slide.on{opacity:1;pointer-events:auto}
 .banner-slide .tag{font-size:12px;color:var(--gold-soft);display:block;margin-bottom:6px}
